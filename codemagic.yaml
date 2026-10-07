@@ -1,0 +1,135 @@
+# YolcuTV – Codemagic derleme yapılandırması
+#
+# ios-testflight : Mac olmadan iPhone sürümünü derler, ekran yansıtma uzantısını ekler,
+#                  imzalar ve TestFlight'a yükler. (Ücretli Apple Developer hesabı gerekir.)
+# ios-imzasiz    : Apple hesabı GEREKTİRMEZ. İmzasız IPA üretir; Sideloadly ile
+#                  ücretsiz Apple ID kullanarak iPhone'a kurulur (7 gün geçerli).
+# android-apk    : Telefona doğrudan kurulabilen APK üretir (Android Studio gerekmez).
+#
+# Platform klasörleri (ios/, android/) depoda tutulmaz; her derlemede baştan üretilir
+# ve tool/ altındaki betiklerle ayarlanır. Böylece Flutter sürümü değişse de sorun çıkmaz.
+
+workflows:
+  ios-testflight:
+    name: iOS → TestFlight
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      # Codemagic'te App Store Connect API anahtarına verdiğiniz ad (birebir aynı olmalı)
+      app_store_connect: YolcuTV
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      groups:
+        - ios_imza # içinde CERTIFICATE_PRIVATE_KEY bulunan grup
+      vars:
+        BUNDLE_ID: com.yolcutv.yolcuTv
+    scripts:
+      - name: iOS projesini oluştur ve ayarla
+        script: |
+          flutter create --org com.yolcutv --project-name yolcu_tv --platforms ios .
+          bash tool/setup_platforms.sh
+
+      - name: Paketleri indir
+        script: flutter pub get
+
+      - name: Ekran yansıtma uzantısını ekle
+        script: |
+          export BUILD_NAME=$(sed -nE 's/^version:[[:space:]]*([^+[:space:]]+).*/\1/p' pubspec.yaml)
+          export BUILD_NUMBER=${BUILD_NUMBER:-1}
+          gem list -i xcodeproj > /dev/null || gem install xcodeproj
+          ruby tool/ios/add_broadcast_extension.rb
+
+      - name: İmzalama dosyalarını al
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+          app-store-connect fetch-signing-files "$BUNDLE_ID.Broadcast" --type IOS_APP_STORE --create
+          keychain add-certificates
+          xcode-project use-profiles
+
+      - name: IPA derle
+        script: |
+          BUILD_NAME=$(sed -nE 's/^version:[[:space:]]*([^+[:space:]]+).*/\1/p' pubspec.yaml)
+          flutter build ipa --release \
+            --build-name="$BUILD_NAME" \
+            --build-number="$BUILD_NUMBER" \
+            --export-options-plist=/Users/builder/export_options.plist
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+
+  ios-imzasiz:
+    name: iOS → İmzasız IPA (Sideloadly ile deneme)
+    max_build_duration: 45
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: iOS projesini oluştur ve ayarla
+        script: |
+          flutter create --org com.yolcutv --project-name yolcu_tv --platforms ios .
+          bash tool/setup_platforms.sh
+
+      - name: Paketleri indir
+        script: flutter pub get
+
+      - name: Ekran yansıtma uzantısını ekle
+        script: |
+          export BUILD_NAME=$(sed -nE 's/^version:[[:space:]]*([^+[:space:]]+).*/\1/p' pubspec.yaml)
+          export BUILD_NUMBER=${BUILD_NUMBER:-1}
+          gem list -i xcodeproj > /dev/null || gem install xcodeproj
+          ruby tool/ios/add_broadcast_extension.rb
+
+      - name: İmzasız derle ve IPA'ya paketle
+        script: |
+          BUILD_NAME=$(sed -nE 's/^version:[[:space:]]*([^+[:space:]]+).*/\1/p' pubspec.yaml)
+          flutter build ios --release --no-codesign \
+            --build-name="$BUILD_NAME" \
+            --build-number="$BUILD_NUMBER"
+          APP=build/ios/iphoneos/Runner.app
+          if [ ! -d "$APP/PlugIns/Broadcast.appex" ]; then
+            echo "HATA: Ekran yansıtma uzantısı uygulamanın içine gömülmemiş."
+            exit 1
+          fi
+          rm -rf build/ipa_imzasiz && mkdir -p build/ipa_imzasiz/Payload
+          cp -R "$APP" build/ipa_imzasiz/Payload/
+          (cd build/ipa_imzasiz && zip -qry ../YolcuTV-imzasiz.ipa Payload)
+          ls -lh build/YolcuTV-imzasiz.ipa
+
+    artifacts:
+      - build/YolcuTV-imzasiz.ipa
+
+  android-apk:
+    name: Android → APK
+    max_build_duration: 45
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+    scripts:
+      - name: Android projesini oluştur ve ayarla
+        script: |
+          flutter create --org com.yolcutv --project-name yolcu_tv --platforms android .
+          bash tool/setup_platforms.sh
+
+      - name: Paketleri indir
+        script: flutter pub get
+
+      - name: APK derle
+        script: |
+          BUILD_NAME=$(sed -nE 's/^version:[[:space:]]*([^+[:space:]]+).*/\1/p' pubspec.yaml)
+          flutter build apk --release \
+            --build-name="$BUILD_NAME" \
+            --build-number="$BUILD_NUMBER"
+
+    artifacts:
+      - build/app/outputs/flutter-apk/*.apk

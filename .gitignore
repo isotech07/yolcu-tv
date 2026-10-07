@@ -1,0 +1,22 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+*.iml
+.idea/
+.vscode/
+
+# Platform klasörleri derlemede (yerelde veya Codemagic'te) üretilir
+/android/
+/ios/
+/windows/
+/macos/
+/linux/
+/web/
+
+# Gizli anahtarlar asla depoya girmesin
+*.p8
+*.p12
+*_private_key
+yolcutv_sertifika*

@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YolcuTV – Telefon ekranı</title>
+<style>
+  :root {
+    --night: #0F1E33;
+    --panel: #172A45;
+    --text: #EAF0F8;
+    --muted: #93A7C4;
+    --lane: #F4B400;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: #000; overflow: hidden; }
+  body {
+    color: var(--text);
+    font: 20px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+  video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+
+  .msg {
+    position: fixed; inset: 0; display: grid; place-items: center; text-align: center;
+    background: var(--night); padding: 40px;
+  }
+  .msg.hidden { display: none; }
+  .msg h1 { font-size: 34px; font-weight: 600; margin: 0 0 12px; }
+  .msg p { color: var(--muted); margin: 0 auto; max-width: 34em; }
+  /* Beklerken şerit çizgisi akar: tek hareketli öğe */
+  .lane {
+    width: 240px; height: 6px; margin: 28px auto 0; border-radius: 3px;
+    background: repeating-linear-gradient(90deg, var(--lane) 0 28px, transparent 28px 48px);
+    background-size: 48px 6px; animation: drive 0.9s linear infinite;
+  }
+  @keyframes drive { to { background-position: -48px 0; } }
+  @media (prefers-reduced-motion: reduce) { .lane { animation: none; } }
+
+  .tools {
+    position: fixed; top: 16px; right: 16px; display: flex; gap: 10px;
+    transition: opacity .4s;
+  }
+  body.idle .tools { opacity: 0; pointer-events: none; }
+  .tools a, .tools button {
+    font: inherit; font-size: 18px; color: var(--text); text-decoration: none;
+    background: rgba(23, 42, 69, .85); border: 0; border-radius: 12px;
+    padding: 14px 20px; cursor: pointer;
+  }
+  .tools a:active, .tools button:active { background: #2A4A78; }
+</style>
+</head>
+<body>
+<video id="v" muted autoplay playsinline></video>
+
+<div class="msg" id="msg">
+  <div>
+    <h1 id="msgTitle">Telefon bekleniyor</h1>
+    <p id="msgText">Telefonda YolcuTV'yi açın ve "Yansıtmayı başlat"a dokunun. Görüntü burada otomatik açılır.</p>
+    <div class="lane" id="lane"></div>
+  </div>
+</div>
+
+<div class="tools">
+  <button id="full">Tam ekran</button>
+  <a href="/" id="channels">Kanallar</a>
+</div>
+
+<script src="/static/jmuxer.min.js"></script>
+<script>
+(() => {
+  const video = document.getElementById('v');
+  const msg = document.getElementById('msg');
+  let jm = null;
+  let lastPts = null;
+  let receiving = false;
+
+  function show(title, text, waiting) {
+    document.getElementById('msgTitle').textContent = title;
+    document.getElementById('msgText').textContent = text;
+    document.getElementById('lane').style.display = waiting ? 'block' : 'none';
+    msg.classList.remove('hidden');
+  }
+  function hide() { msg.classList.add('hidden'); }
+
+  // iPhone görüntüyü hep dikey gönderir ve yönü ayrıca bildirir; döndürmeyi tarayıcı yapar.
+  function rotate(deg) {
+    const side = deg === 90 || deg === -90;
+    Object.assign(video.style, side
+      ? { inset: 'auto', left: '50%', top: '50%', width: '100vh', height: '100vw',
+          transform: `translate(-50%, -50%) rotate(${deg}deg)` }
+      : { inset: '', left: '', top: '', width: '', height: '',
+          transform: deg ? `rotate(${deg}deg)` : '' });
+  }
+
+  // iPhone uzantısı 8090'da çalışır; kanal sayfası ise uygulamanın 8080 portundadır.
+  if (location.port === '8090') {
+    document.getElementById('channels').href = `http://${location.hostname}:8080/`;
+  }
+
+  function createMuxer() {
+    if (jm) { try { jm.destroy(); } catch (_) {} }
+    lastPts = null;
+    jm = new JMuxer({
+      node: video,
+      mode: 'video',
+      flushingTime: 0,       // her kareyi beklemeden işle
+      maxDelay: 300,         // 300 ms'den fazla geride kalırsa canlıya atla
+      fps: 30,
+      clearBuffer: true,
+      debug: false,
+      onError: () => { receiving = false; createMuxer(); },
+    });
+  }
+
+  function onFrame(buf) {
+    const bytes = new Uint8Array(buf);
+    if (bytes.length < 10) return;
+    const dv = new DataView(buf);
+    const pts = dv.getUint32(1) * 4294967296 + dv.getUint32(5); // µs
+    let duration = 1000 / 30;
+    if (lastPts !== null) duration = Math.min(200, Math.max(1, (pts - lastPts) / 1000));
+    lastPts = pts;
+    jm.feed({ video: bytes.subarray(9), duration, isLastVideoFrameComplete: true });
+    if (!receiving) {
+      receiving = true;
+      hide();
+      video.play().catch(() => {});
+    }
+  }
+
+  function connect() {
+    const ws = new WebSocket(`ws://${location.host}/ws-ekran`);
+    ws.binaryType = 'arraybuffer';
+    ws.onmessage = (e) => {
+      if (typeof e.data !== 'string') { onFrame(e.data); return; }
+      let m; try { m = JSON.parse(e.data); } catch (_) { return; }
+      if (m.type === 'on') {
+        if (!receiving) show('Görüntü geliyor', 'Telefon ekranı birazdan burada.', true);
+      } else if (m.type === 'off') {
+        receiving = false;
+        createMuxer();
+        show('Yansıtma durdu', 'Telefondan yeniden başlatabilir veya kanallara dönebilirsiniz.', false);
+      } else if (m.type === 'rotate') {
+        rotate(Number(m.deg) || 0);
+      } else if (m.type === 'reset') {
+        // Telefon döndürüldü: yeni çözünürlük için çözücüyü baştan kur.
+        receiving = false;
+        createMuxer();
+      }
+    };
+    ws.onclose = () => {
+      receiving = false;
+      show('Telefonla bağlantı koptu', 'Telefonun erişim noktası açık ve uygulama çalışıyor olmalı. Yeniden bağlanılıyor…', true);
+      setTimeout(() => { createMuxer(); connect(); }, 2000);
+    };
+  }
+
+  // Tam ekran ve araç çubuğunun otomatik gizlenmesi
+  document.getElementById('full').onclick = async () => {
+    try {
+      if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
+      else await document.exitFullscreen();
+    } catch (_) {}
+  };
+  let idle = null;
+  function poke() {
+    document.body.classList.remove('idle');
+    clearTimeout(idle);
+    idle = setTimeout(() => document.body.classList.add('idle'), 3500);
+  }
+  document.addEventListener('pointerdown', poke);
+  poke();
+
+  if (!window.MediaSource) {
+    show('Bu tarayıcı desteklenmiyor', 'Görüntü için Media Source desteği gerekli.', false);
+    return;
+  }
+  createMuxer();
+  connect();
+})();
+</script>
+</body>
+</html>
