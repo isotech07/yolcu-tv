@@ -64,7 +64,11 @@ workflows:
     publishing:
       app_store_connect:
         auth: integration
-        submit_to_testflight: true
+        # Yalnızca yükler. İç test (kendi iPhone'unuz) Apple incelemesi gerektirmez: derleme
+        # işlendikten sonra "otomatik dağıtım" açık iç test grubuna kendiliğinden gelir.
+        # Davet bağlantısıyla dış test kullanıcılarına açmak için true yapın; o zaman
+        # Apple beta incelemesi ve TestFlight'ta "Test Bilgileri" gerekir.
+        submit_to_testflight: false
 
   ios-imzasiz:
     name: iOS → İmzasız IPA (Sideloadly ile deneme)

@@ -74,48 +74,44 @@ iPhone ekranı → ReplayKit yayın uzantısı (ayrı süreç)
 
 **1. Apple Developer Program** – developer.apple.com/programs/enroll (yıllık 99 USD, onay 1–2 gün).
 
-**2. Uygulama kimliği (Bundle ID)** – developer.apple.com → Certificates, Identifiers & Profiles →
-Identifiers → **+** → App IDs → App → Explicit: `com.yolcutv.yolcuTv`, açıklama: YolcuTV.
-(Uzantının kimliğini `com.yolcutv.yolcuTv.Broadcast` derleme sırasında Codemagic kendisi oluşturur.)
+**2. İki paket kimliği (Bundle ID)** – developer.apple.com/account → Certificates, Identifiers & Profiles →
+Identifiers → **+** → App IDs → App → Description: `YolcuTV`, Bundle ID: Explicit `com.yolcutv.yolcuTv` →
+Continue → Register. Aynısını uzantı için tekrarlayın: Description `YolcuTV Broadcast`,
+Bundle ID `com.yolcutv.yolcuTv.Broadcast`. Ek yetenek (capability) işaretlemeyin.
 
 **3. App Store Connect'te uygulama kaydı** – appstoreconnect.apple.com → Uygulamalar → **+** → Yeni Uygulama →
 iOS, ad (App Store'da benzersiz olmalı), dil Türkçe, Bundle ID: yukarıdaki, SKU: yolcutv.
 
-**4. API anahtarı** – App Store Connect → Kullanıcılar ve Erişim → Entegrasyonlar → App Store Connect API →
-Ekip Anahtarları → **+** → erişim: **App Manager** → oluştur. `.p8` dosyasını indirin (yalnızca bir kez
-indirilebilir). **Issuer ID** ve **Key ID** değerlerini not edin.
+**4. API anahtarı** – App Store Connect → Kullanıcılar ve Erişim → Entegrasyonlar → App Store Connect API.
+İlk seferde **Erişim İste**'ye (Request Access) tıklayıp onaylayın. Ekip Anahtarları → **+** → ad: `Codemagic`,
+erişim: **App Manager** → oluştur. `.p8` dosyasını indirin (yalnızca bir kez indirilebilir).
+**Issuer ID** ve **Key ID** değerlerini not edin.
 
 **5. Sertifika anahtarı** – Git Bash'te (PowerShell değil):
 ```bash
 ssh-keygen -t rsa -b 2048 -m PEM -f ~/yolcutv_sertifika -q -N ""
-cat ~/yolcutv_sertifika
+cat ~/yolcutv_sertifika | clip
 ```
-Çıkan metnin tamamını (BEGIN/END satırları dahil) kopyalayın. Bu dosyayı güvenli bir yerde saklayın
-ve **asla depoya yüklemeyin**.
+İkinci komut anahtarın tamamını (BEGIN/END satırları dahil) panoya kopyalar. Dosyayı güvenli bir yerde
+saklayın ve **asla depoya yüklemeyin**.
 
-**6. Kodu GitHub'a yükleyin** – github.com'da **özel (private)** bir depo açın (ör. `yolcu-tv`). Zip'i
-temiz bir klasöre çıkarıp PowerShell'de:
-```powershell
-cd C:\projeler\yolcu_tv_git
-git init
-git add .
-git commit -m "YolcuTV ilk sürüm"
-git branch -M main
-git remote add origin https://github.com/KULLANICI_ADINIZ/yolcu-tv.git
-git push -u origin main
-```
-(İlk `push`'ta tarayıcıda GitHub girişi açılır.)
+**6. Kod GitHub'da** – github.com/isotech07/yolcu-tv (`main` dalı). Codemagic kodu doğrudan buradan çeker.
 
-**7. Codemagic** – codemagic.io'ya GitHub hesabıyla girin → **Add application** → deponuzu seçin → Flutter App.
-- **Teams → Personal Account → Integrations → Developer Portal → Connect**: API key name alanına tam olarak
-  `YolcuTV` yazın (codemagic.yaml ile aynı), Issuer ID, Key ID ve `.p8` dosyasını girin.
-- Uygulamanın **Environment variables** sekmesi: ad `CERTIFICATE_PRIVATE_KEY`, değer 5. adımda kopyaladığınız
-  metin, grup `ios_imza`, **Secret** işaretli → Add.
+**7. Codemagic** – codemagic.io'ya GitHub hesabıyla girin → **Add application** → `yolcu-tv` → Flutter App.
+- Hesap (veya ekip) ayarlarındaki **Integrations** bölümü → **Developer Portal** → **Connect**
+  (daha önce anahtar eklediyseniz **Manage keys → Add key**): **App Store Connect API key name** alanına
+  tam olarak `YolcuTV` yazın (codemagic.yaml ile aynı), Issuer ID, Key ID ve `.p8` dosyasını girin → Save.
+- Uygulamanın **Environment variables** sekmesi: ad `CERTIFICATE_PRIVATE_KEY`, değer 5. adımda panoya
+  kopyalanan metin (Ctrl+V), grup `ios_imza`, **Secret** işaretli → Add.
 
-**8. Derleme** – Codemagic'te **Start new build** → iş akışı **iOS → TestFlight**. İlk derleme 15–25 dakika sürer.
+**8. Derleme** – Codemagic'te **Start new build** → dal `main` → iş akışı **iOS → TestFlight**.
+İlk derleme 15–25 dakika sürer. Derleme yalnızca App Store Connect'e yükler; Apple beta incelemesi gerekmez.
 
-**9. iPhone'a kurulum** – App Store Connect → uygulamanız → **TestFlight** → Dahili Test → kendinizi test
-kullanıcısı olarak ekleyin. iPhone'a **TestFlight** uygulamasını indirip YolcuTV'yi kurun.
+**9. iPhone'a kurulum** – App Store Connect → YolcuTV → **TestFlight** → **İç Test** (Internal Testing) yanındaki
+**+** → grup adı `Ekip`, **otomatik dağıtım** işaretli → Oluştur → **Test kullanıcıları** → **+** → kendinizi seçin.
+Yüklenen derleme Apple tarafından işlendikten sonra (genelde 10–30 dk) gruba kendiliğinden gelir.
+iPhone'a App Store'dan **TestFlight** uygulamasını indirip aynı Apple ID ile girin → YolcuTV → **Yükle**.
+TestFlight kurulumu için Geliştirici Modu gerekmez.
 
 **10. Deneme** – iPhone'da Kişisel Erişim Noktası'nı açın, Tesla'yı bu ağa bağlayın → YolcuTV →
 **Yansıtmayı başlat** → açılan pencerede **YolcuTV Yansıtma** → **Yayını Başlat** →
